@@ -1,0 +1,160 @@
+************** PersonService.swift **************
+import UIKit
+struct FailableDecodable<Base : Decodable> : Decodable {
+
+    let base: Base?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.base = try? container.decode(Base.self)
+    }
+}
+
+struct PersonModel : Decodable{
+    let id : Int
+    let first_name : String
+    let last_name : String
+}
+
+struct MessageModel : Decodable{
+    let message : String
+}
+
+protocol IFindAllApi{
+    func onFinish(_ persons_:[PersonModel])
+}
+protocol ICreateApi{
+    func onFinish(_ person:PersonModel)
+}
+class PersonService:ObservableObject{
+    @Published var items = [PersonModel]()
+    let urlPrefix = "http://localhost:8000"
+    var findAllApi : IFindAllApi?
+    var createApi : ICreateApi?
+    func findAll(){
+        guard let url = URL(string : "\(urlPrefix)/person/") else{
+            print("URL - NOT FOUND")
+            return
+        }
+        URLSession.shared.dataTask(with: url){ (data, res, error)
+            in
+            if(error != nil){
+                print("error",error?.localizedDescription ?? "")
+                return
+            }
+            //print(data, data!, "\n...\n", res,"\n...\n",  error)
+            do{
+                if let data = data{
+                    //print(data)
+                    //let result = try JSONDecoder().decode([PersonModel].self, from: data)
+                    let result = try JSONDecoder().decode([FailableDecodable<PersonModel>].self, from: data)
+                        .compactMap { $0.base }
+                    //print("....1....",result)
+                    
+                    DispatchQueue.main.async {
+                        self.items = result //.data
+                        if self.findAllApi != nil{
+                            self.findAllApi!.onFinish(self.items)
+                        }
+                        //print("2....", result.data)
+                        /*for e in self.items{
+                            print(e)
+                        }*/
+                    }
+                }else{
+                    print("No data")
+                }
+            }
+            catch let JsonError{
+                //print("....2....")
+                print("fetch json error:", JsonError.localizedDescription)
+            }
+        }.resume()
+    }
+    
+    func create(parameters: [String:Any]){
+        guard let url = URL(string : "\(urlPrefix)/person/") else{
+            print("URL - NOT FOUND")
+            return
+        }
+        let data = try! JSONSerialization.data(withJSONObject: parameters)
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = data
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        URLSession.shared.dataTask(with: request){ (data, res, error)
+            in
+            if(error != nil){
+                print("error",error?.localizedDescription ?? "")
+                return
+            }
+            do{
+                if let data = data{
+                    let result = try JSONDecoder().decode(PersonModel.self, from: data)
+                    DispatchQueue.main.async {
+                        //print(result)
+                        if self.createApi != nil{
+                            self.createApi!.onFinish(result)
+                        }
+                    }
+                }else{
+                    print("No data")
+                }
+            }
+            catch let JsonError{
+                print("fetch json error:", JsonError.localizedDescription)
+            }
+        }.resume()
+    }
+}
+
+var service = PersonService()
+
+
+/*class A:IFindAllApi{
+    func onFinish(_ persons: [PersonModel]) {
+        print(persons)
+    }
+    func Do(){
+        service.findAllApi = self
+        service.findAll()
+    }
+}
+var a = A()
+a.Do()
+*/
+
+//service.findAll()
+//service.create(parameters:["first_name":"bala","last_name":"murugan"])
+//service.update(parameters:["first_name":"bale","last_name":"murugun"],id:4)
+//service.delete(id:4)
+
+
+
+
+
+
+
+
+
+
+
+
+***************  ViewController.swift ************
+
+class ViewController: UIViewController, UITableViewDelegate, UITableViewDataSource, IFindAllApi {
+    func onFinish(_ persons_: [PersonModel]) {
+        for e in persons_{
+            persons.append(Person(e.id,e.first_name,e.last_name))
+        }
+        tblPerson.reloadData()
+    }
+    //....
+    // ...
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        // Do any additional setup after loading the view.
+        PersonService().findAll()
+    }
+}
